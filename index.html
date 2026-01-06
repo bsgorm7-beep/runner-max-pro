@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>RUNNER MAX PRO</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<style>
+html,body{
+ margin:0;height:100%;overflow:hidden;
+ font-family:Arial;background:#87CEEB
+}
+canvas{display:block}
+.panel{
+ position:absolute;inset:0;
+ display:flex;flex-direction:column;
+ align-items:center;justify-content:center;
+ background:rgba(0,0,0,.65);
+ color:#fff;gap:14px;text-align:center
+}
+button{
+ min-width:220px;
+ padding:16px 26px;
+ border:none;border-radius:18px;
+ font-size:18px;font-weight:600;
+ color:#fff;
+ background:linear-gradient(135deg,#1e88ff,#42a5f5);
+ transition:.2s
+}
+button:active{transform:scale(.92)}
+.hud{
+ position:absolute;top:10px;left:50%;
+ transform:translateX(-50%);
+ background:rgba(0,0,0,.45);
+ color:#fff;padding:8px 16px;border-radius:14px
+}
+.flash{
+ position:absolute;inset:0;
+ background:rgba(0,255,0,.25);
+ display:none;pointer-events:none
+}
+.buyText{
+ position:absolute;top:40%;left:50%;
+ transform:translate(-50%,-50%);
+ font-size:26px;color:#0f0;font-weight:bold;
+ display:none;animation:pop .8s ease-out
+}
+@keyframes pop{
+ 0%{transform:translate(-50%,-50%) scale(.4);opacity:0}
+ 100%{transform:translate(-50%,-50%) scale(1);opacity:1}
+}
+</style>
+</head>
+<body>
+
+<div class="hud" id="hud" style="display:none">
+ Очки: <b id="score">0</b>
+</div>
+<div class="flash" id="flash"></div>
+<div class="buyText" id="buyText"></div>
+
+<!-- MENU -->
+<div id="menu" class="panel">
+ <h1>RUNNER MAX PRO</h1>
+ <button onclick="startGame()">▶ Играть</button>
+ <button onclick="openShop()">🛒 Магазин</button>
+ <button onclick="openInfo()">ℹ Об игре</button>
+</div>
+
+<!-- SHOP -->
+<div id="shop" class="panel" style="display:none">
+ <h2>🛒 Магазин</h2>
+ <div id="coinsText"></div>
+ <button onclick="buy('hat',50)">🧢 Кепка (50)</button>
+ <button onclick="buy('jacket',120)">🧥 Куртка (120)</button>
+ <button onclick="buyRare()">💎 Золотой скин (10%)</button>
+ <button onclick="backMenu()">⬅ Назад</button>
+</div>
+
+<!-- INFO -->
+<div id="info" class="panel" style="display:none">
+ <h2>ℹ Об игре</h2>
+ <p>
+ Создатель:<br><b>@BSgormYou123</b><br><br>
+ YouTube:<br><b>@TheBS_gorm</b>
+ </p>
+ <button onclick="backMenu()">⬅ Назад</button>
+</div>
+
+<!-- GAME OVER -->
+<div id="over" class="panel" style="display:none">
+ <h2>GAME OVER</h2>
+ <div id="finalScore"></div>
+ <button onclick="shareScore()">📤 Поделиться рекордом</button>
+ <button onclick="startGame()">🔁 Рестарт</button>
+ <button onclick="backMenu()">🏠 В меню</button>
+</div>
+
+<canvas id="c"></canvas>
+
+<script>
+/* Telegram safe */
+let tg=null;
+try{
+ if(window.Telegram){
+  tg=Telegram.WebApp;
+  tg.expand();
+  tg.ready();
+ }
+}catch(e){}
+
+/* Canvas */
+const c=document.getElementById("c"),ctx=c.getContext("2d");
+function resize(){c.width=innerWidth;c.height=innerHeight}
+resize();onresize=resize;
+
+/* Audio */
+const AC=window.AudioContext||window.webkitAudioContext;
+const actx=new AC();
+function sound(f,d=.1,t="sine",g=.08){
+ const o=actx.createOscillator(),ga=actx.createGain();
+ o.type=t;o.frequency.value=f;ga.gain.value=g;
+ o.connect(ga).connect(actx.destination);
+ o.start();o.stop(actx.currentTime+d);
+}
+document.addEventListener("click",e=>{
+ if(e.target.tagName==="BUTTON") sound(520,.07,"square",.05);
+});
+const jumpSound=()=>sound(650,.1,"square",.07);
+const hitSound =()=>sound(120,.25,"sawtooth",.12);
+
+/* State & Save */
+let state="menu",score=0,speed=6;
+let coins=+localStorage.coins||0;
+let owned=JSON.parse(localStorage.owned||"[]");
+let skin=localStorage.skin||"none";
+
+const runner={x:120,y:0,w:32,h:80,vy:0,leg:0};
+let obs=[],groundY=0;
+
+/* UI */
+function hideAll(){
+ ["menu","shop","info","over"].forEach(i=>document.getElementById(i).style.display="none");
+}
+function backMenu(){
+ hideAll();state="menu";
+ menu.style.display="flex";
+ hud.style.display="none";
+}
+function openShop(){
+ hideAll();shop.style.display="flex";
+ coinsText.textContent="Очки: "+coins;
+}
+function openInfo(){
+ hideAll();info.style.display="flex";
+}
+
+/* Share score */
+function shareScore(){
+ const text=`🏆 Я набрал ${score} очков в RUNNER MAX PRO!`;
+ if(tg && tg.shareText){
+  tg.shareText(text);
+ }else if(navigator.share){
+  navigator.share({text});
+ }else{
+  alert(text);
+ }
+}
+
+/* Shop */
+function showBuy(text){
+ buyText.textContent=text;
+ buyText.style.display="block";
+ flash.style.display="block";
+ setTimeout(()=>{
+  buyText.style.display="none";
+  flash.style.display="none";
+ },700);
+}
+function save(){
+ localStorage.coins=coins;
+ localStorage.owned=JSON.stringify(owned);
+ localStorage.skin=skin;
+}
+function buy(item,price){
+ if(coins<price)return alert("Не хватает очков");
+ coins-=price;
+ if(!owned.includes(item)) owned.push(item);
+ skin=item;
+ save(); showBuy("✔ Куплено!");
+}
+function buyRare(){
+ if(coins<300)return alert("Нужно 300 очков");
+ coins-=300;
+ if(Math.random()<0.1){
+  if(!owned.includes("gold")) owned.push("gold");
+  skin="gold"; showBuy("💎 ВЫПАЛО!");
+ }else showBuy("❌ Не повезло");
+ save();
+}
+
+/* Game */
+function startGame(){
+ groundY=c.height-120;
+ score=0;speed=6;obs=[];
+ runner.vy=0; runner.y=groundY-runner.h;
+ state="play";
+ hideAll();
+ hud.style.display="block";
+ scoreEl.textContent=0;
+}
+addEventListener("mousedown",jump);
+addEventListener("touchstart",jump);
+function jump(){
+ if(state!=="play")return;
+ if(runner.y>=groundY-runner.h){
+  runner.vy=-20; jumpSound();
+ }
+}
+function spawn(){
+ obs.push({x:c.width+800+Math.random()*800,h:50+Math.random()*60});
+}
+function gameOver(){
+ hitSound();
+ coins+=score; save();
+ finalScore.textContent="Очки: "+score;
+ hideAll(); over.style.display="flex";
+ hud.style.display="none";
+ state="over";
+}
+
+/* Draw */
+function drawRunner(){
+ ctx.fillStyle=skin==="gold"?"gold":"#222";
+ ctx.fillRect(runner.x,runner.y+20,runner.w,runner.h-40);
+ ctx.beginPath();
+ ctx.arc(runner.x+runner.w/2,runner.y+12,10,0,Math.PI*2);
+ ctx.fill();
+ if(skin==="jacket"){
+  ctx.fillStyle="#b71c1c";
+  ctx.fillRect(runner.x-2,runner.y+30,runner.w+4,26);
+ }
+ if(skin==="hat"){
+  ctx.fillStyle="#000";
+  ctx.fillRect(runner.x-4,runner.y+2,runner.w+8,6);
+ }
+ ctx.strokeStyle="#111";ctx.lineWidth=4;
+ ctx.beginPath();
+ const s=(runner.leg++%20<10)?8:-8;
+ ctx.moveTo(runner.x+8,runner.y+runner.h-20);
+ ctx.lineTo(runner.x+8+s,runner.y+runner.h);
+ ctx.moveTo(runner.x+24,runner.y+runner.h-20);
+ ctx.lineTo(runner.x+24-s,runner.y+runner.h);
+ ctx.stroke();
+}
+function drawCactus(o){
+ ctx.fillStyle="#2f7d3a";
+ ctx.fillRect(o.x,groundY-o.h,26,o.h);
+}
+
+/* Loop */
+const scoreEl=document.getElementById("score");
+function loop(){
+ ctx.clearRect(0,0,c.width,c.height);
+ ctx.fillStyle="#87CEEB";
+ ctx.fillRect(0,0,c.width,c.height);
+ groundY=c.height-120;
+ ctx.fillStyle="#d2a75c";
+ ctx.fillRect(0,groundY,c.width,120);
+
+ if(state==="play"){
+  runner.y+=runner.vy;
+  runner.vy+=1.2;
+  if(runner.y>groundY-runner.h){
+   runner.y=groundY-runner.h; runner.vy=0;
+  }
+  if(obs.length<2)spawn();
+  obs.forEach(o=>o.x-=speed);
+  if(obs[0]&&obs[0].x<-80){
+   obs.shift(); score++; speed+=0.03;
+   scoreEl.textContent=score;
+  }
+  const o=obs[0];
+  if(o&&runner.x<o.x+26&&runner.x+runner.w>o.x&&runner.y+runner.h>groundY-o.h){
+   gameOver();
+  }
+  obs.forEach(drawCactus);
+  drawRunner();
+ }
+ requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>
